@@ -82,7 +82,7 @@ static struct lwm2m_engine_res res[MAX_INSTANCE_COUNT][SERVER_MAX_ID];
 static struct lwm2m_engine_res_inst
 			res_inst[MAX_INSTANCE_COUNT][RESOURCE_INSTANCE_COUNT];
 
-static int disable_cb(uint16_t obj_inst_id)
+static int disable_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 {
 	int i;
 
@@ -97,7 +97,8 @@ static int disable_cb(uint16_t obj_inst_id)
 	return -ENOENT;
 }
 
-static int update_trigger_cb(uint16_t obj_inst_id)
+static int update_trigger_cb(uint16_t obj_inst_id,
+			     uint8_t *args, uint16_t args_len)
 {
 #ifdef CONFIG_LWM2M_RD_CLIENT_SUPPORT
 	engine_trigger_update(false);
@@ -211,7 +212,7 @@ static struct lwm2m_engine_obj_inst *server_create(uint16_t obj_inst_id)
 			  res_inst[index], j,
 			  &server_id[index], sizeof(*server_id));
 	INIT_OBJ_RES(SERVER_LIFETIME_ID, res[index], i, res_inst[index], j,
-		     1U, true, &lifetime[index], sizeof(*lifetime),
+		     1U, false, true, &lifetime[index], sizeof(*lifetime),
 		     NULL, NULL, lifetime_write_cb, NULL);
 	INIT_OBJ_RES_DATA(SERVER_DEFAULT_MIN_PERIOD_ID, res[index], i,
 			  res_inst[index], j,

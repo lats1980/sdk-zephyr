@@ -17,7 +17,6 @@ config FLOAT_HARD
 	bool "Enable hard-float calling convention"
 	default y
 	depends on FPU
-	select COMPRESSED_ISA
 	help
 	  This option enables the hard-float calling convention.
 
@@ -117,7 +116,9 @@ menuconfig RISCV_PMP
 	bool "RISC-V PMP Support"
 	default n
 	select THREAD_STACK_INFO
-	select MEMORY_PROTECTION if !BOARD_QEMU_RISCV32
+	select CPU_HAS_MPU
+	select MPU
+	select SRAM_REGION_PERMISSIONS
 	select ARCH_MEM_DOMAIN_SYNCHRONOUS_API if USERSPACE
 	select PMP_POWER_OF_TWO_ALIGNMENT if USERSPACE
 	help
@@ -130,5 +131,17 @@ source "arch/riscv/core/pmp/Kconfig"
 endif #RISCV_PMP
 
 endmenu
+
+config MAIN_STACK_SIZE
+	default 4096 if 64BIT
+
+config TEST_EXTRA_STACKSIZE
+	default 1024 if 64BIT
+
+config CMSIS_THREAD_MAX_STACK_SIZE
+	default 1024 if 64BIT
+
+config CMSIS_V2_THREAD_MAX_STACK_SIZE
+	default 1024 if 64BIT
 
 endmenu

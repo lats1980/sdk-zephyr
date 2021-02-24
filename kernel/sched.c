@@ -16,7 +16,7 @@
 #include <kernel_internal.h>
 #include <logging/log.h>
 #include <sys/atomic.h>
-LOG_MODULE_DECLARE(os);
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
 /* Maximum time between the time a self-aborting thread flags itself
  * DEAD and the last read or write to its stack memory (i.e. the time
@@ -100,18 +100,18 @@ bool z_is_t1_higher_prio_than_t2(struct k_thread *thread_1,
 	}
 
 #ifdef CONFIG_SCHED_DEADLINE
-	/* Note that we don't care about wraparound conditions.  The
-	 * expectation is that the application will have arranged to
-	 * block the threads, change their priorities or reset their
-	 * deadlines when the job is complete.  Letting the deadlines
-	 * go negative is fine and in fact prevents aliasing bugs.
+	/* If we assume all deadlines live within the same "half" of
+	 * the 32 bit modulus space (this is a documented API rule),
+	 * then the latest dealine in the queue minus the earliest is
+	 * guaranteed to be (2's complement) non-negative.  We can
+	 * leverage that to compare the values without having to check
+	 * the current time.
 	 */
 	if (thread_1->base.prio == thread_2->base.prio) {
-		int now = (int) k_cycle_get_32();
-		int dt1 = thread_1->base.prio_deadline - now;
-		int dt2 = thread_2->base.prio_deadline - now;
+		int32_t d1 = thread_1->base.prio_deadline;
+		int32_t d2 = thread_2->base.prio_deadline;
 
-		return dt1 < dt2;
+		return (d2 - d1) >= 0;
 	}
 #endif
 
@@ -666,9 +666,6 @@ static void add_to_waitq_locked(struct k_thread *thread, _wait_q_t *wait_q)
 static void add_thread_timeout(struct k_thread *thread, k_timeout_t timeout)
 {
 	if (!K_TIMEOUT_EQ(timeout, K_FOREVER)) {
-#ifdef CONFIG_LEGACY_TIMEOUT_API
-		timeout = _TICK_ALIGN + k_ms_to_ticks_ceil32(timeout);
-#endif
 		z_add_thread_timeout(thread, timeout);
 	}
 }
@@ -1256,14 +1253,19 @@ static inline void z_vrfy_k_yield(void)
 #include <syscalls/k_yield_mrsh.c>
 #endif
 
-static int32_t z_tick_sleep(int32_t ticks)
+static int32_t z_tick_sleep(k_ticks_t ticks)
 {
 #ifdef CONFIG_MULTITHREADING
-	uint32_t expected_wakeup_time;
+	uint32_t expected_wakeup_ticks;
 
 	__ASSERT(!arch_is_in_isr(), "");
 
-	LOG_DBG("thread %p for %d ticks", _current, ticks);
+#ifndef CONFIG_TIMEOUT_64BIT
+	/* LOG subsys does not handle 64-bit values
+	 * https://github.com/zephyrproject-rtos/zephyr/issues/26246
+	 */
+	LOG_DBG("thread %p for %u ticks", _current, ticks);
+#endif
 
 	/* wait of 0 ms is treated as a 'yield' */
 	if (ticks == 0) {
@@ -1271,16 +1273,9 @@ static int32_t z_tick_sleep(int32_t ticks)
 		return 0;
 	}
 
-	k_timeout_t timeout;
+	k_timeout_t timeout = Z_TIMEOUT_TICKS(ticks);
 
-#ifndef CONFIG_LEGACY_TIMEOUT_API
-	timeout = Z_TIMEOUT_TICKS(ticks);
-#else
-	ticks += _TICK_ALIGN;
-	timeout = (k_ticks_t) ticks;
-#endif
-
-	expected_wakeup_time = ticks + z_tick_get_32();
+	expected_wakeup_ticks = ticks + z_tick_get_32();
 
 	k_spinlock_key_t key = k_spin_lock(&sched_spinlock);
 
@@ -1295,7 +1290,7 @@ static int32_t z_tick_sleep(int32_t ticks)
 
 	__ASSERT(!z_is_thread_state_set(_current, _THREAD_SUSPENDED), "");
 
-	ticks = expected_wakeup_time - z_tick_get_32();
+	ticks = (k_ticks_t)expected_wakeup_ticks - z_tick_get_32();
 	if (ticks > 0) {
 		return ticks;
 	}
@@ -1317,11 +1312,7 @@ int32_t z_impl_k_sleep(k_timeout_t timeout)
 		return (int32_t) K_TICKS_FOREVER;
 	}
 
-#ifdef CONFIG_LEGACY_TIMEOUT_API
-	ticks = k_ms_to_ticks_ceil32(timeout);
-#else
 	ticks = timeout.ticks;
-#endif
 
 	ticks = z_tick_sleep(ticks);
 	sys_trace_end_call(SYS_TRACE_ID_SLEEP);
@@ -1587,7 +1578,7 @@ static bool thread_obj_validate(struct k_thread *thread)
 #endif
 		Z_OOPS(Z_SYSCALL_VERIFY_MSG(ret, "access denied"));
 	}
-	CODE_UNREACHABLE;
+	CODE_UNREACHABLE; /* LCOV_EXCL_LINE */
 }
 
 static inline int z_vrfy_k_thread_join(struct k_thread *thread,

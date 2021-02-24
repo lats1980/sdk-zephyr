@@ -144,8 +144,8 @@ static inline uint32_t arch_k_cycle_get_32(void);
  * @brief Power save idle routine
  *
  * This function will be called by the kernel idle loop or possibly within
- * an implementation of z_sys_power_save_idle in the kernel when the
- * '_sys_power_save_flag' variable is non-zero.
+ * an implementation of z_pm_save_idle in the kernel when the
+ * '_pm_save_flag' variable is non-zero.
  *
  * Architectures that do not implement power management instructions may
  * immediately return, otherwise a power-saving instruction should be
@@ -190,7 +190,7 @@ void arch_cpu_atomic_idle(unsigned int key);
 /**
  * Per-cpu entry function
  *
- * @param context parameter, implementation specific
+ * @param data context parameter, implementation specific
  */
 typedef FUNC_NORETURN void (*arch_cpustart_t)(void *data);
 
@@ -816,33 +816,93 @@ void arch_gdb_step(void);
  * @{
  */
 
-#ifdef CONFIG_CACHE_FLUSHING
+#ifdef CONFIG_CACHE_MANAGEMENT
 /**
  *
- * @brief Flush d-cache lines to main memory
+ * @brief Enable d-cache
  *
- * @see sys_cache_flush
+ * @see arch_dcache_enable
  */
-void arch_dcache_flush(void *addr, size_t size);
+void arch_dcache_enable(void);
 
 /**
  *
- * @brief Invalidate d-cache lines
+ * @brief Disable d-cache
  *
- * @see sys_cache_invd
+ * @see arch_dcache_disable
  */
-void arch_dcache_invd(void *addr, size_t size);
+void arch_dcache_disable(void);
 
-#ifndef CONFIG_CACHE_LINE_SIZE
+/**
+ *
+ * @brief Enable i-cache
+ *
+ * @see arch_icache_enable
+ */
+void arch_icache_enable(void);
+
+/**
+ *
+ * @brief Enable i-cache
+ *
+ * @see arch_dcache_disable
+ */
+void arch_dcache_disable(void);
+
+/**
+ *
+ * @brief Write-back / Invalidate / Write-back + Invalidate all d-cache
+ *
+ * @see arch_dcache_all
+ */
+int arch_dcache_all(int op);
+
+/**
+ *
+ * @brief Write-back / Invalidate / Write-back + Invalidate d-cache lines
+ *
+ * @see arch_dcache_range
+ */
+int arch_dcache_range(void *addr, size_t size, int op);
+
+/**
+ *
+ * @brief Write-back / Invalidate / Write-back + Invalidate all i-cache
+ *
+ * @see arch_icache_all
+ */
+int arch_icache_all(int op);
+
+/**
+ *
+ * @brief Write-back / Invalidate / Write-back + Invalidate i-cache lines
+ *
+ * @see arch_icache_range
+ */
+int arch_icache_range(void *addr, size_t size, int op);
+
+#ifdef CONFIG_DCACHE_LINE_SIZE_DETECT
 /**
  *
  * @brief Get d-cache line size
  *
- * @see sys_cache_line_size_get
+ * @see sys_dcache_line_size_get
  */
-size_t arch_cache_line_size_get(void);
-#endif
-#endif
+size_t arch_dcache_line_size_get(void);
+#endif /* CONFIG_DCACHE_LINE_SIZE_DETECT */
+
+#ifdef CONFIG_ICACHE_LINE_SIZE_DETECT
+/**
+ *
+ * @brief Get i-cache line size
+ *
+ * @see sys_icache_line_size_get
+ */
+size_t arch_icache_line_size_get(void);
+#endif /* CONFIG_ICACHE_LINE_SIZE_DETECT */
+
+#endif /* CONFIG_CACHE_MANAGEMENT */
+
 /** @} */
 
 #ifdef CONFIG_TIMING_FUNCTIONS
@@ -947,6 +1007,41 @@ uint32_t arch_timing_freq_get_mhz(void);
 /* @} */
 
 #endif /* CONFIG_TIMING_FUNCTIONS */
+
+#ifdef CONFIG_PCIE_MSI_MULTI_VECTOR
+
+struct msi_vector;
+typedef struct msi_vector msi_vector_t;
+
+/**
+ * @brief Allocate vector(s) for the endpoint MSI message(s).
+ *
+ * @param priority the MSI vectors base interrupt priority
+ * @param vectors an array to fill with allocated MSI vectors
+ * @param n_vector the size of MSI vectors array
+ *
+ * @return The number of allocated MSI vectors
+ */
+uint8_t arch_pcie_msi_vectors_allocate(unsigned int priority,
+				       msi_vector_t *vectors,
+				       uint8_t n_vector);
+
+/**
+ * @brief Connect an MSI vector to the given routine
+ *
+ * @param vector The MSI vector to connect to
+ * @param routine Interrupt service routine
+ * @param parameter ISR parameter
+ * @param flags Arch-specific IRQ configuration flag
+ *
+ * @return True on success, false otherwise
+ */
+bool arch_pcie_msi_vector_connect(msi_vector_t *vector,
+				  void (*routine)(const void *parameter),
+				  const void *parameter,
+				  uint32_t flags);
+
+#endif /* CONFIG_PCIE_MSI_MULTI_VECTOR */
 
 #ifdef __cplusplus
 }

@@ -12,14 +12,11 @@
 #include <stddef.h>
 #include <sys/dlist.h>
 #include <toolchain.h>
+#include <kernel/thread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Forward declaration */
-struct k_thread;
-typedef struct k_thread *k_tid_t;
 
 /**
  * @defgroup mem_domain_apis Memory domain APIs
@@ -27,7 +24,7 @@ typedef struct k_thread *k_tid_t;
  * @{
  */
 
-#ifdef CONFIG_MEMORY_PROTECTION
+#ifdef CONFIG_USERSPACE
 /**
  * @def K_MEM_PARTITION_DEFINE
  *
@@ -63,12 +60,7 @@ struct k_mem_partition {
 	/** attribute of memory partition */
 	k_mem_partition_attr_t attr;
 };
-#else
-/* To support use of IS_ENABLED for the APIs below */
-struct k_mem_partition;
-#endif /* CONFIG_MEMORY_PROTECTION */
 
-#ifdef CONFIG_USERSPACE
 /**
  * @brief Memory Domain
  *
@@ -111,6 +103,7 @@ extern struct k_mem_domain k_mem_domain_default;
 #else
 /* To support use of IS_ENABLED for the APIs below */
 struct k_mem_domain;
+struct k_mem_partition;
 #endif /* CONFIG_USERSPACE */
 
 /**

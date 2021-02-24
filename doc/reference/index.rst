@@ -31,8 +31,10 @@ API Reference
    resource_management/index.rst
    shell/index.rst
    storage/index.rst
+   misc/timeutil.rst
    usb/index.rst
    usermode/index.rst
    util/index.rst
    settings/index.rst
    timing_functions/index.rst
+   virtualization/index.rst

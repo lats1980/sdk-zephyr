@@ -125,8 +125,10 @@
 	Z_ITERABLE_SECTION_ROM(settings_handler_static, 4)
 #endif
 
+	Z_ITERABLE_SECTION_ROM(k_p4wq_initparam, 4)
+
 #if defined(CONFIG_EMUL)
-	SECTION_DATA_PROLOGUE(log_const_sections,,)
+	SECTION_DATA_PROLOGUE(emulators_section,,)
 	{
 		__emul_list_start = .;
 		KEEP(*(SORT_BY_NAME(".emulators")));

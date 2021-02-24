@@ -454,7 +454,7 @@ foreach(module_name ${ZEPHYR_MODULE_NAMES})
   # this binary_dir is created but stays empty. Object files land in
   # the main binary dir instead.
   # https://cmake.org/pipermail/cmake/2019-June/069547.html
-  string(TOUPPER ${module_name} MODULE_NAME_UPPER)
+  zephyr_string(SANITIZE TOUPPER MODULE_NAME_UPPER ${module_name})
   if(NOT ${ZEPHYR_${MODULE_NAME_UPPER}_CMAKE_DIR} STREQUAL "")
     set(ZEPHYR_CURRENT_MODULE_DIR ${ZEPHYR_${MODULE_NAME_UPPER}_MODULE_DIR})
     set(ZEPHYR_CURRENT_CMAKE_DIR ${ZEPHYR_${MODULE_NAME_UPPER}_CMAKE_DIR})
@@ -464,6 +464,14 @@ endforeach()
 # Done processing modules, clear ZEPHYR_CURRENT_MODULE_DIR and ZEPHYR_CURRENT_CMAKE_DIR.
 set(ZEPHYR_CURRENT_MODULE_DIR)
 set(ZEPHYR_CURRENT_CMAKE_DIR)
+
+# The OpenThread module creates a print-ot-config that uses an echo command
+# which fails on Windows, see more: https://github.com/openthread/openthread/pull/6175
+# This code disable the target from `ALL` but the target can still be manually
+# called by the user. All the target does is printing the current OpenThread configuration.
+if(TARGET print-ot-config)
+  set_property(TARGET print-ot-config PROPERTY EXCLUDE_FROM_ALL TRUE)
+endif()
 
 set(syscall_list_h   ${CMAKE_CURRENT_BINARY_DIR}/include/generated/syscall_list.h)
 set(syscalls_json    ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/syscalls.json)
@@ -754,7 +762,7 @@ if(CONFIG_CODE_DATA_RELOCATION)
 endif()
 
 if(CONFIG_USERSPACE)
-  zephyr_get_compile_options_for_lang(C compiler_flags_priv)
+  zephyr_get_compile_options_for_lang_as_string(C compiler_flags_priv)
   string(REPLACE "$<TARGET_PROPERTY:compiler,coverage>" ""
          NO_COVERAGE_FLAGS "${compiler_flags_priv}"
   )

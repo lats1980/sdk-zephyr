@@ -90,9 +90,11 @@ void common_work_handler(struct k_work *unused)
  * -# Handler function gives semaphore, then we wait for that semaphore
  * from the test function body.
  * -# Check if semaphore was obtained successfully.
+ * -# Set a work item's flag in pending state and append the item into workqueue.
+ * -# Check if the queue is empty.
  *
  * Expected Test Result:
- * - The callback function defined by user works successful.
+ * - The work item can be submit to workqueue whenever it is in right state.
  *
  * Pass/Fail Criteria:
  * - Successful if check points in test procedure are all passed,
@@ -118,7 +120,65 @@ void test_work_item_supplied_with_func(void)
 	k_sem_take(&sync_sema, K_FOREVER);
 	sem_count = k_sem_count_get(&sync_sema);
 	zassert_equal(sem_count, COM_SEM_INIT_VAL, NULL);
+
+	/* TESTPOINT: When a work item be added to a workqueue,
+	 * it's flag will be in pending state, before the work item be processed,
+	 * it cannot be append to a workqueue another time.
+	 */
+	zassert_false(k_work_pending(&work_item), NULL);
+	k_work_submit_to_queue(&workq, &work_item);
+	zassert_true(k_work_pending(&work_item), NULL);
+	k_work_submit_to_queue(&workq, &work_item);
+
+	/* Test the work item's callback function can only be invoked once */
+	k_sem_take(&sync_sema, K_FOREVER);
+	zassert_true(k_queue_is_empty(&workq.queue), NULL);
 }
+
+
+/**
+ * @brief Test k_work_submit_to_user_queue API
+ *
+ * @details Funcion k_work_submit_to_user_queue() will return
+ * -EBUSY: if the work item was already in some workqueue and
+ * -ENOMEM: if no memory for thread resource pool allocation.
+ * Create two situation to meet the error return value.
+ *
+ * @see k_work_submit_to_user_queue()
+ * @ingroup kernel_workqueue_tests
+ */
+void test_k_work_submit_to_user_queue_fail(void)
+{
+	int ret = 0;
+
+	k_sem_reset(&sync_sema);
+	k_work_init(&work[0], common_work_handler);
+	k_work_init(&work[1], common_work_handler);
+
+	/* TESTPOINT: When a work item be added to a workqueue,
+	 * it's flag will be in pending state, before the work item be processed,
+	 * it cannot be append to a workqueue another time.
+	 */
+	k_work_submit_to_user_queue(&user_workq, &work[0]);
+	k_work_submit_to_user_queue(&user_workq, &work[0]);
+
+	/* Test the work item's callback function can only be invoked once */
+	k_sem_take(&sync_sema, K_FOREVER);
+	zassert_true(k_queue_is_empty(&user_workq.queue), NULL);
+
+	/* use up the memory in resource pool */
+	for (int i = 0; i < 100; i++) {
+		ret = k_queue_alloc_append(&user_workq.queue, &work[1]);
+		if (ret == -ENOMEM) {
+			break;
+		}
+	}
+
+	k_work_submit_to_user_queue(&user_workq, &work[0]);
+	/* if memory is used up, the work cannot be append into the workqueue */
+	zassert_false(k_work_pending(&work[0]), NULL);
+}
+
 
 /* Two handler functions fifo_work_first() and fifo_work_second
  * are made for two work items to test first in, first out.
@@ -1397,6 +1457,7 @@ void test_main(void)
 			 ztest_1cpu_unit_test(test_triggered_work_cancel_thread),
 			 ztest_1cpu_unit_test(test_triggered_work_cancel_isr),
 			 ztest_unit_test(test_work_item_supplied_with_func),
+			 ztest_user_unit_test(test_k_work_submit_to_user_queue_fail),
 			 ztest_unit_test(test_process_work_items_fifo),
 			 ztest_unit_test(test_sched_delayed_work_item),
 			 ztest_unit_test(test_workqueue_max_number),

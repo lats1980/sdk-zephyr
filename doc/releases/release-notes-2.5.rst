@@ -39,12 +39,28 @@ API Changes
   ``flags`` parameter, which allows to configure current LwM2M client session,
   for instance enable bootstrap procedure in the curent session.
 
+* LwM2M execute now supports arguments. The execute callback
+  `lwm2m_engine_execute_cb_t` is extended with an ``args`` parameter which points
+  to the CoAP payload that comprises the arguments, and an ``args_len`` parameter
+  to indicate the length of the ``args`` data.
+
 * Changed vcnl4040 dts binding default for property 'proximity-trigger'.
   Changed the default to match the HW POR state for this property.
 
 * The :c:func:`clock_control_async_on` function will now take ``callback`` and
   ``user_data`` as arguments instead of structure which contained list node,
   callback and user data.
+
+* The :c:func:`mqtt_keepalive_time_left` function now returns -1 if keep alive
+  messages are disabled by setting ``CONFIG_MQTT_KEEPALIVE`` to 0.
+
+* The ``CONFIG_LEGACY_TIMEOUT_API`` mode has been removed.  All kernel
+  timeout usage must use the new-style k_timeout_t type and not the
+  legacy/deprecated millisecond counts.
+
+* The :c:func:`coap_pending_init` function now accepts an additional ``retries``
+  parameter, allowing to specify the maximum retransmission count of the
+  confirmable message.
 
 Deprecated in this release
 ==========================
@@ -53,6 +69,9 @@ Deprecated in this release
 * ARM Musca-A board and SoC support deprecated and planned to be removed in 2.6.0.
 
 * DEVICE_INIT was deprecated in favor of utilizing DEVICE_DEFINE directly.
+
+* DEVICE_AND_API_INIT was deprecated in favor of DEVICE_DT_INST_DEFINE and
+  DEVICE_DEFINE.
 
 Removed APIs in this release
 ============================
@@ -86,6 +105,7 @@ Architectures
 
   * Added support for the SPARC architecture, compatible with the SPARC V8
     specification and the SPARC ABI.
+  * FPU is supported in both shared and unshared FP register mode.
 
 * x86
 
@@ -107,6 +127,10 @@ Boards & SoC Support
   * SPARC QEMU for emulating LEON3 processors and running kernel tests
 
 * Made these changes in other boards:
+
+  * nRF5340 DK: Selected TF-M as the default Secure Processing Element
+    (SPE) when building Zephyr for the non-secure domain.
+
 
 * Added support for these following shields:
 
@@ -146,6 +170,9 @@ Drivers and Sensors
 * Ethernet
 
 * Flash
+
+  * CONFIG_NORDIC_QSPI_NOR_QE_BIT has been removed.  The
+    quad-enable-requirements devicetree property should be used instead.
 
 * GPIO
 
@@ -244,6 +271,12 @@ Libraries / Subsystems
 
   * MCUmgr
 
+    * Added support for flash devices that have non-0xff erase value.
+    * Added optional verification, enabled via
+      :option:`CONFIG_IMG_MGMT_REJECT_DIRECT_XIP_MISMATCHED_SLOT`, of an uploaded
+      Direct-XIP binary, which will reject any binary that is not able to boot
+      from base address of offered upload slot.
+
   * updatehub
 
 * Settings
@@ -270,6 +303,12 @@ Libraries / Subsystems
 * Tracing
 
 * Debug
+
+* DFU
+
+ * boot: Reworked using MCUBoot's bootutil_public library which allow to use
+   API implementation already provided by MCUboot codebase and remove
+   zephyr's own implementations.
 
 HALs
 ****
@@ -303,6 +342,14 @@ MCUBoot
     see ``CONFIG_MCUBOOT_CLEANUP_ARM_CORE``.
   * Allow the final data chunk in the image to be unaligned in
     the serial-recovery protocol.
+  * Kconfig: allow xip-revert only for xip-mode.
+  * ext: tinycrypt: update ctr mode to stream.
+  * Use minimal CBPRINTF implementation.
+  * Configure logging to LOG_MINIMAL by default.
+  * boot: cleanup NXP MPU configuration before boot.
+  * Fix nokogiri<=1.11.0.rc4 vulnerability.
+  * bootutil_public library was extracted as code which is common API for
+    MCUboot and the DFU application, see ``CONFIG_MCUBOOT_BOOTUTIL_LIB``
 
 * imgtool
 
@@ -310,6 +357,13 @@ MCUBoot
   * Add possibility to set confirm flag for hex files as well.
   * Usage of --confirm implies --pad.
   * Fixed 'custom_tlvs' argument handling.
+  * Add support for setting fixed ROM address into image header.
+
+
+Trusted-Firmware-M
+******************
+
+* Synchronized Trusted-Firmware-M module to the upstream v1.2.0 release.
 
 Documentation
 *************

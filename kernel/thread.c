@@ -28,10 +28,8 @@
 #include <sys/check.h>
 #include <random/rand32.h>
 #include <sys/atomic.h>
-
-#define LOG_LEVEL CONFIG_KERNEL_LOG_LEVEL
 #include <logging/log.h>
-LOG_MODULE_DECLARE(os);
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
 #ifdef CONFIG_THREAD_RUNTIME_STATS
 k_thread_runtime_stats_t threads_runtime_stats;
@@ -409,10 +407,6 @@ static void schedule_new_thread(struct k_thread *thread, k_timeout_t delay)
 	if (K_TIMEOUT_EQ(delay, K_NO_WAIT)) {
 		k_thread_start(thread);
 	} else {
-#ifdef CONFIG_LEGACY_TIMEOUT_API
-		delay = _TICK_ALIGN + k_ms_to_ticks_ceil32(delay);
-#endif
-
 		z_add_thread_timeout(thread, delay);
 	}
 #else
@@ -910,7 +904,10 @@ static inline int z_vrfy_k_float_disable(struct k_thread *thread)
 #endif /* CONFIG_USERSPACE */
 
 #ifdef CONFIG_IRQ_OFFLOAD
-static K_SEM_DEFINE(offload_sem, 1, 1);
+/* Make offload_sem visible outside under testing, in order to release
+ * it outside when error happened.
+ */
+K_SEM_DEFINE(offload_sem, 1, 1);
 
 void irq_offload(irq_offload_routine_t routine, const void *parameter)
 {

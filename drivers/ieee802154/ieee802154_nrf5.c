@@ -39,6 +39,11 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <net/ieee802154_radio.h>
 
+#if defined(CONFIG_SOC_NRF5340_CPUAPP) && \
+	defined(CONFIG_TRUSTED_EXECUTION_NONSECURE)
+#include <secure_services.h>
+#endif
+
 #include "ieee802154_nrf5.h"
 #include "nrf_802154.h"
 
@@ -58,11 +63,35 @@ static struct nrf5_802154_data nrf5_data;
 #define FRAME_PENDING_BIT (1 << 4)
 #define TXTIME_OFFSET_US  (5 * USEC_PER_MSEC)
 
+#if defined(CONFIG_IEEE802154_NRF5_UICR_EUI64_ENABLE)
+#if defined(CONFIG_SOC_NRF5340_CPUAPP)
+#if defined(CONFIG_TRUSTED_EXECUTION_NONSECURE)
+#define EUI64_ADDR (NRF_UICR_S->OTP)
+#else
+#define EUI64_ADDR (NRF_UICR->OTP)
+#endif /* CONFIG_TRUSTED_EXECUTION_NONSECURE */
+#else
+#define EUI64_ADDR (NRF_UICR->CUSTOMER)
+#endif /* CONFIG_SOC_NRF5340_CPUAPP */
+#else
 #if defined(CONFIG_SOC_NRF5340_CPUAPP) || defined(CONFIG_SOC_NRF5340_CPUNET)
+#if defined(CONFIG_TRUSTED_EXECUTION_NONSECURE)
+#define EUI64_ADDR (NRF_FICR_S->INFO.DEVICEID)
+#else
 #define EUI64_ADDR (NRF_FICR->INFO.DEVICEID)
+#endif /* CONFIG_TRUSTED_EXECUTION_NONSECURE */
 #else
 #define EUI64_ADDR (NRF_FICR->DEVICEID)
-#endif
+#endif /* CONFIG_SOC_NRF5340_CPUAPP || CONFIG_SOC_NRF5340_CPUNET */
+#endif /* CONFIG_IEEE802154_NRF5_UICR_EUI64_ENABLE */
+
+#if defined(CONFIG_IEEE802154_UICR_EUI64_ENABLE)
+#define EUI64_ADDR_HIGH CONFIG_IEEE802154_NRF5_UICR_EUI64_REG
+#define EUI64_ADDR_LOW (CONFIG_IEEE802154_NRF5_UICR_EUI64_REG + 1)
+#else
+#define EUI64_ADDR_HIGH 0
+#define EUI64_ADDR_LOW 1
+#endif /* CONFIG_IEEE802154_NRF5_UICR_EUI64_ENABLE */
 
 /* Convenience defines for RADIO */
 #define NRF5_802154_DATA(dev) \
@@ -82,18 +111,30 @@ static void nrf5_get_eui64(uint8_t *mac)
 	uint64_t factoryAddress;
 	uint32_t index = 0;
 
+#if !defined(CONFIG_IEEE802154_NRF5_UICR_EUI64_ENABLE)
 	/* Set the MAC Address Block Larger (MA-L) formerly called OUI. */
 	mac[index++] = (IEEE802154_NRF5_VENDOR_OUI >> 16) & 0xff;
 	mac[index++] = (IEEE802154_NRF5_VENDOR_OUI >> 8) & 0xff;
 	mac[index++] = IEEE802154_NRF5_VENDOR_OUI & 0xff;
+#endif
 
 #if defined(CONFIG_SOC_NRF5340_CPUAPP) && \
 	defined(CONFIG_TRUSTED_EXECUTION_NONSECURE)
-#error Accessing EUI64 on the non-secure mode is not supported at the moment
+	int ret = -EPERM;
+#if defined(CONFIG_SPM)
+	ret = spm_request_read(&factoryAddress,
+			       (uint32_t)&EUI64_ADDR[EUI64_ADDR_HIGH],
+			       sizeof(factoryAddress));
+#endif
+	if (ret != 0) {
+		LOG_ERR("Unable to read EUI64 from the secure zone.");
+		LOG_ERR("Setting EUI64 to 0");
+		factoryAddress = 0ULL;
+	}
 #else
 	/* Use device identifier assigned during the production. */
-	factoryAddress = (uint64_t)EUI64_ADDR[0] << 32;
-	factoryAddress |= EUI64_ADDR[1];
+	factoryAddress = (uint64_t)EUI64_ADDR[EUI64_ADDR_HIGH] << 32;
+	factoryAddress |= EUI64_ADDR[EUI64_ADDR_LOW];
 #endif
 	memcpy(mac + index, &factoryAddress, sizeof(factoryAddress) - index);
 }
@@ -192,10 +233,11 @@ static enum ieee802154_hw_caps nrf5_get_capabilities(const struct device *dev)
 {
 	return IEEE802154_HW_FCS |
 	       IEEE802154_HW_FILTER |
-#if !defined(CONFIG_NRF_802154_SL_OPENSOURCE) && \
-    !defined(CONFIG_NRF_802154_SER_HOST)
+#if !defined(CONFIG_NRF_802154_SL_OPENSOURCE)
 	       IEEE802154_HW_CSMA |
+#ifdef CONFIG_IEEE802154_NRF5_PKT_TXTIME
 	       IEEE802154_HW_TXTIME |
+#endif /* CONFIG_IEEE802154_NRF5_PKT_TXTIME */
 #endif
 	       IEEE802154_HW_2_4_GHZ |
 	       IEEE802154_HW_TX_RX_ACK |
@@ -388,6 +430,24 @@ static void nrf5_tx_started(const struct device *dev,
 	}
 }
 
+#ifdef CONFIG_IEEE802154_NRF5_PKT_TXTIME
+static bool nrf5_tx_at(struct net_pkt *pkt, bool cca)
+{
+	uint32_t tx_at = net_pkt_txtime(pkt) / NSEC_PER_USEC;
+	bool ret;
+
+	ret = nrf_802154_transmit_raw_at(nrf5_data.tx_psdu,
+					 cca,
+					 tx_at - TXTIME_OFFSET_US,
+					 TXTIME_OFFSET_US,
+					 nrf_802154_channel_get());
+	if (nrf5_data.event_handler) {
+		LOG_WRN("TX_STARTED event will be triggered without delay");
+	}
+	return ret;
+}
+#endif /* CONFIG_IEEE802154_NRF5_PKT_TXTIME */
+
 static int nrf5_tx(const struct device *dev,
 		   enum ieee802154_tx_mode mode,
 		   struct net_pkt *pkt,
@@ -413,31 +473,18 @@ static int nrf5_tx(const struct device *dev,
 	case IEEE802154_TX_MODE_CCA:
 		ret = nrf_802154_transmit_raw(nrf5_radio->tx_psdu, true);
 		break;
-#if !defined(CONFIG_NRF_802154_SL_OPENSOURCE) && \
-    !defined(CONFIG_NRF_802154_SER_HOST)
+#if !defined(CONFIG_NRF_802154_SL_OPENSOURCE)
 	case IEEE802154_TX_MODE_CSMA_CA:
 		nrf_802154_transmit_csma_ca_raw(nrf5_radio->tx_psdu);
 		break;
+#ifdef CONFIG_IEEE802154_NRF5_PKT_TXTIME
 	case IEEE802154_TX_MODE_TXTIME:
-	case IEEE802154_TX_MODE_TXTIME_CCA: {
-		bool cca = (mode == IEEE802154_TX_MODE_TXTIME_CCA);
-		uint32_t tx_at;
-
+	case IEEE802154_TX_MODE_TXTIME_CCA:
 		__ASSERT_NO_MSG(pkt);
-		__ASSERT(IS_ENABLED(CONFIG_NET_PKT_TIMESTAMP),
-			 "Timestamp is required");
-		tx_at = net_pkt_timestamp(pkt)->second * USEC_PER_SEC
-			+ net_pkt_timestamp(pkt)->nanosecond / NSEC_PER_USEC;
-		ret = nrf_802154_transmit_raw_at(nrf5_radio->tx_psdu,
-						 cca,
-						 tx_at - TXTIME_OFFSET_US,
-						 TXTIME_OFFSET_US,
-						 nrf_802154_channel_get());
-		if (nrf5_data.event_handler) {
-			LOG_WRN("TX_STARTED event will be triggered without delay");
-		}
+		ret = nrf5_tx_at(pkt,
+				 mode == IEEE802154_TX_MODE_TXTIME_CCA);
 		break;
-	}
+#endif /* CONFIG_IEEE802154_NRF5_PKT_TXTIME */
 #endif
 	default:
 		NET_ERR("TX mode %d not supported", mode);
@@ -821,8 +868,8 @@ NET_DEVICE_INIT(nrf5_154_radio, CONFIG_IEEE802154_NRF5_DRV_NAME,
 		&nrf5_radio_api, L2,
 		L2_CTX_TYPE, MTU);
 #else
-DEVICE_AND_API_INIT(nrf5_154_radio, CONFIG_IEEE802154_NRF5_DRV_NAME,
-		    nrf5_init, &nrf5_data, &nrf5_radio_cfg,
-		    POST_KERNEL, CONFIG_IEEE802154_NRF5_INIT_PRIO,
-		    &nrf5_radio_api);
+DEVICE_DEFINE(nrf5_154_radio, CONFIG_IEEE802154_NRF5_DRV_NAME,
+		nrf5_init, device_pm_control_nop, &nrf5_data, &nrf5_radio_cfg,
+		POST_KERNEL, CONFIG_IEEE802154_NRF5_INIT_PRIO,
+		&nrf5_radio_api);
 #endif

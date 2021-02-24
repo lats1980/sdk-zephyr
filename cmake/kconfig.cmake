@@ -55,6 +55,10 @@ if(OVERLAY_CONFIG)
   string(REPLACE " " ";" OVERLAY_CONFIG_AS_LIST "${OVERLAY_CONFIG}")
 endif()
 
+if((DEFINED BOARD_REVISION) AND EXISTS ${BOARD_DIR}/${BOARD}_${BOARD_REVISION_STRING}.conf)
+  list(INSERT CONF_FILE_AS_LIST 0 ${BOARD_DIR}/${BOARD}_${BOARD_REVISION_STRING}.conf)
+endif()
+
 # DTS_ROOT_BINDINGS is a semicolon separated list, this causes
 # problems when invoking kconfig_target since semicolon is a special
 # character in the C shell, so we make it into a question-mark
@@ -65,11 +69,18 @@ string(REPLACE ";" "?" DTS_ROOT_BINDINGS "${DTS_ROOT_BINDINGS}")
 # This allows Kconfig files to refer relative from a modules root as:
 # source "$(ZEPHYR_FOO_MODULE_DIR)/Kconfig"
 foreach(module_name ${ZEPHYR_MODULE_NAMES})
-  string(TOUPPER ${module_name} MODULE_NAME_UPPER)
+  zephyr_string(SANITIZE TOUPPER MODULE_NAME_UPPER ${module_name})
   list(APPEND
        ZEPHYR_KCONFIG_MODULES_DIR
        "ZEPHYR_${MODULE_NAME_UPPER}_MODULE_DIR=${ZEPHYR_${MODULE_NAME_UPPER}_MODULE_DIR}"
   )
+
+  if(ZEPHYR_${MODULE_NAME_UPPER}_KCONFIG)
+    list(APPEND
+         ZEPHYR_KCONFIG_MODULES_DIR
+         "ZEPHYR_${MODULE_NAME_UPPER}_KCONFIG=${ZEPHYR_${MODULE_NAME_UPPER}_KCONFIG}"
+  )
+  endif()
 endforeach()
 
 # A list of common environment settings used when invoking Kconfig during CMake
@@ -271,7 +282,7 @@ foreach(kconfig_input
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${kconfig_input})
 endforeach()
 
-add_custom_target(config-sanitycheck DEPENDS ${DOTCONFIG})
+add_custom_target(config-twister DEPENDS ${DOTCONFIG})
 
 # Remove the CLI Kconfig symbols from the namespace and
 # CMakeCache.txt. If the symbols end up in DOTCONFIG they will be
